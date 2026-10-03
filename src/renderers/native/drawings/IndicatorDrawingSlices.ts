@@ -161,7 +161,20 @@ export class IndicatorDrawingSlices {
     labelTooltipAt(x: number, y: number): string | null {
         for (let i = this.tips.length - 1; i >= 0; i -= 1) {
             const r = this.tips[i]!;
-            if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return r.text;
+            if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return r.text || null;
+        }
+        return null;
+    }
+
+    /** The topmost label under a plot-space point — its id, tooltip and `meta` payload, or
+     *  null. Hosts use this to resolve richer context on click/hover than a tooltip string
+     *  holds. Fed by the last prepare. */
+    labelAt(x: number, y: number): { id?: string; tooltip?: string; meta?: Record<string, unknown> } | null {
+        for (let i = this.tips.length - 1; i >= 0; i -= 1) {
+            const r = this.tips[i]!;
+            if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+                return { id: r.labelId, tooltip: r.text || undefined, meta: r.meta };
+            }
         }
         return null;
     }

@@ -2,6 +2,20 @@
 
 All notable changes to Vela, newest first.
 
+## [Unreleased]
+
+### Added
+
+- **Indicators can share named scale columns.** Merging an indicator into a pane with
+  `panes.moveIndicator(id, { pane, axis: "name" })` binds it to a named axis column on
+  the right of the pane; every indicator carrying the same axis name in that pane
+  shares one scale and one column instead of getting a column each. Pane listings
+  (`chart.panes.list()`) report each indicator's `axis` binding.
+- **Labels carry host metadata.** A `meta` object on a label survives the model round
+  trip and comes back through `chart.renderer.labelAt(x, y)`, so a host can resolve
+  richer context on click or hover than a tooltip string holds. The same `meta` field
+  is available on marker series points.
+
 ## [0.8.1]
 
 ### Changed

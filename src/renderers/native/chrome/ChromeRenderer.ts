@@ -314,9 +314,9 @@ export class ChromeRenderer {
         ctx.fillStyle = this.axisTextColor;
         for (const pane of scene.orderedPanes()) {
             if (pane.collapsed) continue; // collapsed strip: legend only, no scale numbers
-            const merged = scene.ownScaleIndicatorsForPane(pane.id);
-            merged.forEach((model, k) => {
-                const sc = scene.indicatorScales.get(model.id)?.scale;
+            const merged = scene.ownScaleGroupsForPane(pane.id);
+            merged.forEach((group, k) => {
+                const sc = scene.indicatorScales.get(group.key)?.scale;
                 if (!sc) return;
                 const x = axisColumnX(dataW, k + 1); // column 0 is the master scale
                 for (const t of paneAxisTicks(sc, pane.bounds.height, undefined, scene.priceMintick)) {

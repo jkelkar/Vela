@@ -176,6 +176,16 @@ export class RendererControl {
     }
 
     /**
+     * The topmost drawing label under a plot-space point — its id, tooltip and `meta`
+     * payload — or null. Pair with a pointer handler (or {@link onClick}) to resolve
+     * richer marker context than a tooltip string holds. Null on a renderer that
+     * doesn't hit-test labels.
+     */
+    labelAt(x: number, y: number): { id?: string; tooltip?: string; meta?: Record<string, unknown> } | null {
+        return this.renderer.labelAt?.(x, y) ?? null;
+    }
+
+    /**
      * Wire (or clear with `null`) the host's symbol picker for the settings dialog's `input.symbol`
      * control — the host opens its own ticker-selection UI and reports the chosen symbol back.
      * No-ops with a warning if the active renderer doesn't support it (only the native renderer does).

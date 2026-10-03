@@ -327,7 +327,7 @@ export interface RendererDisplayOptions {
  */
 export type MoveTarget =
     | 'price'
-    | { pane: string }
+    | { pane: string; axis?: string }
     | { newPane: { before?: string; after?: string } | true };
 
 /** A pane and the indicators it holds — a `chart.panes.list()` entry. */
@@ -343,6 +343,8 @@ export interface PaneInfo {
         title: string;
         shorttitle?: string;
         ownScale: boolean;
+        /** The named scale column the indicator renders on, if it targets one. */
+        axis?: string;
     }>;
 }
 

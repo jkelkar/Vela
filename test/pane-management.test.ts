@@ -58,7 +58,7 @@ class PaneRenderer implements IChartRenderer {
     removedPanes: string[] = [];
     mountedModels: IndicatorModel[] = [];
     removed: string[] = [];
-    setPaneCalls: { id: string; paneId: string; ownScale: boolean }[] = [];
+    setPaneCalls: { id: string; paneId: string; ownScale: boolean; axis?: string }[] = [];
     orderCalls: string[][] = [];
     collapseCalls: { id: string; collapsed: boolean }[] = [];
     maximizeCalls: (string | null)[] = [];
@@ -81,8 +81,8 @@ class PaneRenderer implements IChartRenderer {
     setIndicatorInputs(): void {}
     setIndicatorVisible(): void {}
     setIndicatorStatus(): void {}
-    setIndicatorPane(h: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean }): void {
-        this.setPaneCalls.push({ id: h.id, paneId, ownScale: opts?.ownScale === true });
+    setIndicatorPane(h: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean; axis?: string }): void {
+        this.setPaneCalls.push({ id: h.id, paneId, ownScale: opts?.ownScale === true, axis: opts?.axis });
     }
     orderPanes(ids: string[]): void { this.orderCalls.push([...ids]); }
     setPaneCollapsed(id: string, collapsed: boolean): void { this.collapseCalls.push({ id, collapsed }); }
@@ -223,6 +223,60 @@ describe('pane management — move / merge', () => {
         expect(own).toBeDefined();
         expect(own.indicators.find((i) => i.id === overlay.id)!.ownScale).toBe(false); // owns the pane ⇒ shares its scale
         expect(renderer.setPaneCalls.some((c) => c.id === overlay.id && c.ownScale === false)).toBe(true);
+    });
+
+    it('targets a named axis: merged with own-scale + the name carried to the renderer and pane listing', async () => {
+        const { chart, renderer } = await makeChart();
+        const a = chart.addIndicator('//@version=5\nindicator("A")\nplot(close)');
+        const b = chart.addIndicator('//@version=5\nindicator("B")\nplot(close)');
+        await flush();
+        const paneA = chart.panes.list().find((p) => p.indicators.some((i) => i.id === a.id))!.id;
+
+        b.moveTo({ pane: paneA, axis: 'y2' });
+        await flush();
+        const merged = chart.panes.list().find((p) => p.id === paneA)!;
+        const row = merged.indicators.find((i) => i.id === b.id)!;
+        expect(row.ownScale).toBe(true);
+        expect(row.axis).toBe('y2');
+        expect(renderer.setPaneCalls.some((c) => c.id === b.id && c.paneId === paneA && c.axis === 'y2')).toBe(true);
+    });
+
+    it('two indicators can share one named axis — and a recompute keeps the binding', async () => {
+        const { chart, renderer } = await makeChart();
+        const a = chart.addIndicator('//@version=5\nindicator("A")\nplot(close)');
+        const b = chart.addIndicator('//@version=5\nindicator("B")\nplot(close)');
+        const c = chart.addIndicator('//@version=5\nindicator("C")\nplot(close)');
+        await flush();
+        const paneA = chart.panes.list().find((p) => p.indicators.some((i) => i.id === a.id))!.id;
+
+        b.moveTo({ pane: paneA, axis: 'shared' });
+        c.moveTo({ pane: paneA, axis: 'shared' });
+        await flush();
+        const merged = chart.panes.list().find((p) => p.id === paneA)!;
+        expect(merged.indicators.filter((i) => i.axis === 'shared').map((i) => i.id).sort()).toEqual([b.id, c.id].sort());
+
+        // A recompute must not drop the named-axis binding (same carry path as ownScale).
+        renderer.fireInputChange({ indicatorId: b.id, key: 'len', value: 5 });
+        await flush();
+        const after = chart.panes.list().find((p) => p.id === paneA)!;
+        expect(after.indicators.find((i) => i.id === b.id)!.axis).toBe('shared');
+    });
+
+    it('moving off a named axis clears the binding (merge without axis ⇒ anonymous column)', async () => {
+        const { chart } = await makeChart();
+        const a = chart.addIndicator('//@version=5\nindicator("A")\nplot(close)');
+        const b = chart.addIndicator('//@version=5\nindicator("B")\nplot(close)');
+        await flush();
+        const paneA = chart.panes.list().find((p) => p.indicators.some((i) => i.id === a.id))!.id;
+
+        b.moveTo({ pane: paneA, axis: 'y2' });
+        await flush();
+        b.moveTo({ pane: paneA });
+        await flush();
+        const merged = chart.panes.list().find((p) => p.id === paneA)!;
+        const row = merged.indicators.find((i) => i.id === b.id)!;
+        expect(row.ownScale).toBe(true);
+        expect(row.axis).toBeUndefined();
     });
 });
 

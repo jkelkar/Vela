@@ -22,7 +22,7 @@ import type { OHLCV } from '../../core/model/ohlcv';
 import type { Millis } from '../../core/model/time';
 import type { VolumeLayerData, VpvrLayerData } from '../../core/model/volume-layers';
 import type { Pane } from '../../core/model/scene';
-import type { IndicatorModel, PaneAxisBand } from '../../core/model/indicator';
+import { usesOwnScale, type IndicatorModel, type PaneAxisBand } from '../../core/model/indicator';
 import type { ScenePatch } from '../../core/model/patch';
 import type { InputValue, SymbolPickerFn } from '../../core/model/inputs';
 import type { RendererDisplayOptions, NativeBackend, PriceStyle, MoveTarget, ThemeName, IntroAnimation, IntroStyle } from '../../core/options';
@@ -2022,13 +2022,17 @@ export class NativeRenderer implements IChartRenderer {
         this.scheduler.invalidate(InvalidateLevel.Full);
     }
 
-    /** Move/merge a mounted indicator to another pane (its scale column follows via `ownScale`). */
-    setIndicatorPane(handle: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean }): void {
+    /** Move/merge a mounted indicator to another pane (its scale column follows via `ownScale`/`axis`). */
+    setIndicatorPane(handle: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean; axis?: string }): void {
         const model = this.scene.indicators.get(handle.id);
         if (!model) return;
         model.paneId = paneId;
-        model.ownScale = opts?.ownScale === true;
-        if (!model.ownScale) this.scene.dropIndicatorScale(handle.id);
+        // A named axis implies a merged column (shared when the name repeats on the pane).
+        model.ownScale = opts?.ownScale === true || opts?.axis != null;
+        model.axis = opts?.axis;
+        // Stale scale keys — the old axis membership and any now-unmerged id — are reclaimed
+        // by the computeScales prune, so a still-shared named axis keeps its scale state.
+        this.scene.dropIndicatorScale(handle.id);
         this.inputsUI.setPane(handle.id, paneId);
         this.refreshAnchorOffset(model);
         this.refreshAxisWidth();
@@ -2075,11 +2079,11 @@ export class NativeRenderer implements IChartRenderer {
         return () => this.moveIndicatorCbs.delete(cb);
     }
 
-    /** The number of merged (own-scale) scale columns needed = max across panes. */
+    /** The number of merged (own-scale/named-axis) scale columns needed = max across panes. */
     private maxOwnScaleColumns(): number {
         let max = 0;
         for (const pane of this.scene.panes.values()) {
-            const n = this.scene.ownScaleIndicatorsForPane(pane.id).length;
+            const n = this.scene.ownScaleGroupsForPane(pane.id).length;
             if (n > max) max = n;
         }
         return max;
@@ -2172,7 +2176,7 @@ export class NativeRenderer implements IChartRenderer {
             this.vpvrActive = true; // the VPVR layer follows the indicator's presence
             this.vpvrHidden = false;
         }
-        if (model.ownScale) this.refreshAxisWidth();
+        if (usesOwnScale(model)) this.refreshAxisWidth();
         this.paneControls?.refresh();
         this.scheduler.invalidate(InvalidateLevel.Full);
         return { id: model.id };
@@ -2205,11 +2209,13 @@ export class NativeRenderer implements IChartRenderer {
             this.vpvrHidden = false;
             this.scene.vpvrLayer = null;
         }
+        const removed = this.scene.indicators.get(handle.id);
         this.scene.indicators.delete(handle.id);
         this.dropInstanceLayer(handle.id);
         this.scene.forgetIndicatorZ(handle.id);
         this.scene.forgetAnchorOffset(handle.id);
-        this.scene.dropIndicatorScale(handle.id);
+        if (removed) this.scene.dropIndicatorScale(this.scene.scaleKeyFor(removed));
+        else this.scene.dropIndicatorScale(handle.id);
         this.inputsUI.remove(handle.id);
         this.refreshAxisWidth();
         this.paneControls?.refresh();
@@ -2807,11 +2813,11 @@ export class NativeRenderer implements IChartRenderer {
         const pane = this.paneNodeAtY(y);
         if (!pane) return null;
         const dataW = this.coords.width;
-        const merged = this.scene.ownScaleIndicatorsForPane(pane.id);
+        const merged = this.scene.ownScaleGroupsForPane(pane.id);
         if (x >= dataW + AXIS_MASTER_W && merged.length > 0) {
             const k = Math.floor((x - dataW - AXIS_MASTER_W) / AXIS_MERGED_W);
-            const model = merged[k];
-            if (model) return { holder: this.scene.ensureIndicatorScale(model.id, pane.scaleTarget), height: pane.bounds.height };
+            const group = merged[k];
+            if (group) return { holder: this.scene.ensureIndicatorScale(group.key, pane.scaleTarget), height: pane.bounds.height };
         }
         return { holder: pane, height: pane.bounds.height };
     }
@@ -3100,6 +3106,12 @@ export class NativeRenderer implements IChartRenderer {
             for (const row of group.rows) parts.push(`${row.label} ${row.value}`);
         }
         this.liveRegion.textContent = parts.join('. ');
+    }
+
+    /** The topmost drawing label under a plot-space point (id + tooltip + `meta`), or null.
+     *  Serves the `labelAt` port — the hit rects are the same ones the tooltip lookup uses. */
+    labelAt(x: number, y: number): { id?: string; tooltip?: string; meta?: Record<string, unknown> } | null {
+        return this.indicatorSlices.labelAt(x, y);
     }
 
     // ── data window ──
@@ -3518,7 +3530,12 @@ export class NativeRenderer implements IChartRenderer {
         this.chrome.prepare(this.scene, this.coords, this.theme); // wire drawing resolvers for priceRange
         const animating = this.animator.active;
         const margins = this.scene.style.margins;
+        const liveScaleKeys = new Set<string>();
         for (const pane of panes) {
+            // The pane's merged-scale keys are live whatever the master branch does —
+            // a manual-scale pane keeps its axis columns (registered here since the
+            // group pass below sits past the early continue).
+            for (const g of this.scene.ownScaleGroupsForPane(pane.id)) liveScaleKeys.add(g.key);
             // Manual mode (price-axis drag / vertical pan): render the user's window
             // verbatim and skip autoscale entirely for this pane.
             if (pane.manualScale) {
@@ -3528,8 +3545,8 @@ export class NativeRenderer implements IChartRenderer {
                 continue;
             }
             const models = this.scene.indicatorsForPane(pane.id);
-            // A merged (own-scale) indicator does NOT contribute to the pane master scale.
-            const masterModels = models.filter((m) => m.ownScale !== true);
+            // A merged (own-scale or named-axis) indicator does NOT contribute to the pane master scale.
+            const masterModels = models.filter((m) => !usesOwnScale(m));
             // User drawings do not expand the scale (placing one in the empty margin
             // must not yank the window to follow the cursor). Pine drawings still fold in.
             let dr = this.chrome.paneDrawingsRange(masterModels, this.scene, pane === pricePane, vr);
@@ -3601,24 +3618,30 @@ export class NativeRenderer implements IChartRenderer {
                 pane.scale = { ...pane.scaleTarget };
                 pane.initialized = true;
             }
-            // Merged indicators: each gets its own window, rescaled with identical margins so
-            // its visible extent lines up pixel-for-pixel with the pane's master extent.
-            for (const model of this.scene.ownScaleIndicatorsForPane(pane.id)) {
-                const sl = this.scene.ensureIndicatorScale(model.id, pane.scaleTarget);
+            // Merged indicators: each scale column gets its own window, rescaled with identical
+            // margins so its visible extent lines up pixel-for-pixel with the pane's master
+            // extent. Models sharing a named `axis` are ONE column — the scale is the union
+            // of all the group's members.
+            for (const group of this.scene.ownScaleGroupsForPane(pane.id)) {
+                const sl = this.scene.ensureIndicatorScale(group.key, pane.scaleTarget);
+                liveScaleKeys.add(group.key);
                 if (sl.manualScale) {
                     sl.scaleTarget = sl.manualScale;
                     sl.scale = { ...sl.manualScale };
                     sl.initialized = true;
                     continue;
                 }
-                const mdr = this.chrome.paneDrawingsRange([model], this.scene, false, vr);
-                sl.scaleTarget = computePaneScale([model], this.bars, false, i0, i1, mdr, false, (id) => this.scene.offsetOf(id), margins);
+                const mdr = this.chrome.paneDrawingsRange(group.models, this.scene, false, vr);
+                sl.scaleTarget = computePaneScale(group.models, this.bars, false, i0, i1, mdr, false, (id) => this.scene.offsetOf(id), margins);
                 if (!animating || !sl.initialized) {
                     sl.scale = { ...sl.scaleTarget };
                     sl.initialized = true;
                 }
             }
         }
+        // Scale keys not resolved this pass belong to emptied axes or unmerged models — drop
+        // them so a stale column never lingers (and a re-added axis starts clean).
+        this.scene.pruneIndicatorScales(liveScaleKeys);
     }
 
     /** Union of the visible trade-marker autoscale hints across every mounted indicator
@@ -3687,7 +3710,7 @@ export class NativeRenderer implements IChartRenderer {
      *  indicators don't name the pane. Null when the pane holds no indicators. */
     private paneMasterTitle(paneId: string): string | null {
         const models = this.scene.orderedIndicatorsForPane(paneId);
-        const master = models.find((m) => m.ownScale !== true) ?? models[0];
+        const master = models.find((m) => !usesOwnScale(m)) ?? models[0];
         return master?.title || null;
     }
 
@@ -3942,8 +3965,8 @@ export class NativeRenderer implements IChartRenderer {
             pane.scale.invert = inv;
             pane.scaleTarget.invert = inv;
             if (pane.manualScale) pane.manualScale.invert = inv;
-            for (const model of this.scene.ownScaleIndicatorsForPane(pane.id)) {
-                const sl = this.scene.indicatorScales.get(model.id);
+            for (const group of this.scene.ownScaleGroupsForPane(pane.id)) {
+                const sl = this.scene.indicatorScales.get(group.key);
                 if (!sl) continue;
                 sl.scale.invert = inv;
                 sl.scaleTarget.invert = inv;

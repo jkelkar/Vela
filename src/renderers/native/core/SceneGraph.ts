@@ -2,7 +2,7 @@ import type { OHLCV } from '../../../core/model/ohlcv';
 
 import type { VolumeLayerData, VpvrLayerData } from '../../../core/model/volume-layers';
 import type { PaneKind } from '../../../core/model/scene';
-import type { IndicatorModel, PaneAxisBand } from '../../../core/model/indicator';
+import { usesOwnScale, type IndicatorModel, type PaneAxisBand } from '../../../core/model/indicator';
 import type { PriceStyle } from '../../../core/options';
 import type { PriceScale, PaneBounds } from './CoordinateSystem';
 import { type CandlePaintOverride, type ChartStyle, type CrosshairOverride, defaultChartStyle } from './chartConfig';
@@ -264,9 +264,38 @@ export class SceneGraph {
         return out;
     }
 
-    /** Merged (own-scale) indicators on a pane, ordered by z — one axis column each. */
+    /** Merged (own-scale or named-axis) indicators on a pane, ordered by z. */
     ownScaleIndicatorsForPane(paneId: string): IndicatorModel[] {
-        return this.orderedIndicatorsForPane(paneId).filter((m) => m.ownScale === true);
+        return this.orderedIndicatorsForPane(paneId).filter(usesOwnScale);
+    }
+
+    /** The `indicatorScales` key a merged model lives on: its named axis (`axis`, pane-scoped)
+     *  when it targets one — so models sharing the name land on ONE shared column — else its
+     *  own id (an anonymous own-scale column). The `axis:` prefix namespaces the key away
+     *  from model ids. */
+    scaleKeyFor(model: IndicatorModel): string {
+        return model.axis != null ? `axis:${model.paneId ?? ''}:${model.axis}` : model.id;
+    }
+
+    /** The pane's merged-scale columns in z order, one entry per distinct scale key: an
+     *  anonymous own-scale model is a one-model group; models on the same named `axis`
+     *  collapse into one shared group (shared scale, shared axis column). */
+    ownScaleGroupsForPane(paneId: string): Array<{ key: string; models: IndicatorModel[] }> {
+        const groups = new Map<string, IndicatorModel[]>();
+        for (const m of this.ownScaleIndicatorsForPane(paneId)) {
+            const key = this.scaleKeyFor(m);
+            const g = groups.get(key);
+            if (g) g.push(m);
+            else groups.set(key, [m]);
+        }
+        return [...groups.entries()].map(([key, models]) => ({ key, models }));
+    }
+
+    /** Drop scale entries no merged model still references (an emptied named axis, a moved or
+     *  unmerged indicator) so a stale column never lingers. Call once per autoscale pass with
+     *  the keys the pass actually resolved. */
+    pruneIndicatorScales(live: ReadonlySet<string>): void {
+        for (const key of this.indicatorScales.keys()) if (!live.has(key)) this.indicatorScales.delete(key);
     }
 
     /** Ensure a merged indicator has a private scale slot (seeded from the pane if given). */
@@ -284,10 +313,12 @@ export class SceneGraph {
         this.indicatorScales.delete(id);
     }
 
-    /** The price window a model renders on: its own scale when merged (`ownScale`), else the pane's. */
+    /** The price window a model renders on: its own scale when merged (`ownScale`) or bound to
+     *  a named axis, else the pane's. A named axis resolves through {@link scaleKeyFor}, so
+     *  same-name models read the same scale. */
     scaleFor(model: IndicatorModel, pane: PaneNode): PriceScale {
-        if (model.ownScale === true) {
-            const s = this.indicatorScales.get(model.id);
+        if (usesOwnScale(model)) {
+            const s = this.indicatorScales.get(this.scaleKeyFor(model));
             if (s) return s.scale;
         }
         return pane.scale;

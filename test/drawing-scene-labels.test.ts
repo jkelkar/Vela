@@ -130,7 +130,7 @@ describe('labels — tooltip hit regions', () => {
         const { scene } = paint([label({ tooltip: 'hello' })]);
         const regions = scene.labelTipRegions();
         expect(regions).toHaveLength(1);
-        expect(regions[0]).toEqual({ ...BUBBLE, text: 'hello' });
+        expect(regions[0]).toEqual({ ...BUBBLE, text: 'hello', labelId: 'l1' });
     });
 
     it('point shapes expose a square around the marker', () => {
@@ -163,5 +163,21 @@ describe('labels — tooltip hit regions', () => {
         scene.setSet(setOf([label({})]));
         scene.render(rec.ctx, 800, 400, xOf, yOf);
         expect(scene.labelTipRegions()).toHaveLength(0);
+    });
+
+    it('a label with meta but no tooltip still hit-tests, carrying id + meta', () => {
+        const { scene } = paint([label({ meta: { rule: 'arm', r2: 1.25 } })]);
+        const regions = scene.labelTipRegions();
+        expect(regions).toHaveLength(1);
+        expect(regions[0]!.labelId).toBe('l1');
+        expect(regions[0]!.meta).toEqual({ rule: 'arm', r2: 1.25 });
+        expect(regions[0]!.text).toBe(''); // no tooltip string
+    });
+
+    it('a label with both carries tooltip text AND meta', () => {
+        const { scene } = paint([label({ tooltip: 'tip', meta: { k: 'v' } })]);
+        const r = scene.labelTipRegions()[0]!;
+        expect(r.text).toBe('tip');
+        expect(r.meta).toEqual({ k: 'v' });
     });
 });

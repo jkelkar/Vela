@@ -291,10 +291,11 @@ export interface IChartRenderer {
     /**
      * Move a mounted indicator to another pane (merge/unmerge). `ownScale` gives the
      * indicator its own scale column within the target pane, rescaled so its visible
-     * extent lines up with the pane's; omitted/false shares the pane scale. Present iff
-     * `capabilities.paneManagement`.
+     * extent lines up with the pane's; omitted/false shares the pane scale. `axis`
+     * names the scale column — indicators on the pane carrying the same name share
+     * one column (and imply `ownScale`). Present iff `capabilities.paneManagement`.
      */
-    setIndicatorPane?(handle: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean }): void;
+    setIndicatorPane?(handle: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean; axis?: string }): void;
     /** Set the top-to-bottom pane display order (an array of pane ids). */
     orderPanes?(orderedIds: string[]): void;
     /** Collapse a pane to a thin strip (legend + expand button) or restore it. */
@@ -413,6 +414,14 @@ export interface IChartRenderer {
      * it (`RendererControl.dataWindowReadout()` then returns null).
      */
     getDataWindowReadout?(): DataWindowReadout;
+
+    /**
+     * The topmost label under a plot-space point — its id, tooltip and `meta` payload —
+     * or null when none is there. The hit rects come from the last data paint, so call it
+     * from a pointer handler with the event's plot-local coordinates. Optional: a renderer
+     * that doesn't hit-test drawing labels omits it.
+     */
+    labelAt?(x: number, y: number): { id?: string; tooltip?: string; meta?: Record<string, unknown> } | null;
 
     getVisibleRange(): VisibleRange | null;
     setVisibleRange(range: VisibleRange): void;

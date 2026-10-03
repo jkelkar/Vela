@@ -85,6 +85,15 @@ export interface IndicatorModel {
      */
     ownScale?: boolean;
     /**
+     * Named scale column within the pane: indicators carrying the SAME `axis` name in
+     * the same pane share one own-scale column (one scale, one axis) instead of a
+     * column each — e.g. two studies merged onto the price pane can both target
+     * `axis: 'volume'` and read off one column. Setting `axis` implies `ownScale`
+     * semantics; axis names are pane-scoped (the same name in another pane is a
+     * different scale). Absent ⇒ an anonymous column keyed by indicator id.
+     */
+    axis?: string;
+    /**
      * Chart time (epoch ms) of the execution's FIRST bar. Index-aligned payloads —
      * dense series point/bar arrays and `bar_index` drawing coordinates — count from
      * this bar, so a renderer aligns them to the chart via the offset of this time in
@@ -120,4 +129,11 @@ export interface IndicatorModel {
     props?: InputSchema[];
     /** Current prop values (effective defaults merged with any user/add-time overrides). */
     propValues?: Record<string, InputValue>;
+}
+
+/** Whether the model renders on a private scale column rather than its pane's master
+ *  scale: merged (`ownScale`), or bound to a named `axis` (which implies a merged
+ *  column shared with every same-name model in the pane). */
+export function usesOwnScale(model: Pick<IndicatorModel, 'ownScale' | 'axis'>): boolean {
+    return model.ownScale === true || model.axis != null;
 }

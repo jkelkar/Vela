@@ -54,6 +54,9 @@ export interface MarkerPoint {
     color: string;
     text?: string;
     size?: 'tiny' | 'small' | 'normal' | 'large' | 'huge';
+    /** Arbitrary serializable payload carried with the marker — survives the model round
+     *  trip so hit-testing and inspection can hand it back to the host. */
+    meta?: Record<string, unknown>;
 }
 
 /** A chart surface a series can show on (see {@link SeriesDisplay}). */

@@ -28,6 +28,9 @@ export interface LayerDeps {
     theme: VelaTheme;
 }
 
+/** Px gap between a bar's high/low and an `abovebar`/`belowbar` label's anchor point. */
+const LABEL_BAR_GAP = 20;
+
 /** Drawing price range over the visible bar window (backend-neutral autoscale geometry). */
 export interface DrawingPriceRange {
     min: number;
@@ -66,13 +69,17 @@ export function drawingSetEmpty(s: DrawingSet): boolean {
     return !s.lines.length && !s.boxes.length && !s.labels.length && !s.polylines.length && !s.linefills.length;
 }
 
-/** Hover hit-rect of one rendered label that carries a tooltip (canvas coords of the last render). */
+/** Hover hit-rect of one rendered label that carries a tooltip or metadata (canvas coords
+ *  of the last render). `labelId`/`meta` identify the label back to the host — `text` is
+ *  the display tooltip only. */
 export interface LabelTipRegion {
     left: number;
     top: number;
     right: number;
     bottom: number;
     text: string;
+    labelId?: string;
+    meta?: Record<string, unknown>;
 }
 
 function fontSizePx(size: BoxTextSize): number {
@@ -226,8 +233,8 @@ export class DrawingSceneRenderer {
             const fontPx = fontSizePx(lb.size);
             const lineCount = Math.max(1, (lb.text ?? '').split('\n').length);
             const ext = this.isPointShape(lb.style)
-                ? 14 + Math.max(4, fontPx * 0.6) + 2
-                : 14 + fontPx * 1.25 * lineCount + 8 + 7;
+                ? LABEL_BAR_GAP + Math.max(4, fontPx * 0.6) + 2
+                : LABEL_BAR_GAP + fontPx * 1.25 * lineCount + 8 + 7;
             if (lb.yloc === 'abovebar') aboveMargin = Math.max(aboveMargin, ext);
             else belowMargin = Math.max(belowMargin, ext);
         }
@@ -525,7 +532,7 @@ export class DrawingSceneRenderer {
                 const bar = this.deps.barAt(this.logicalOf(lb.xloc, lb.x));
                 if (!bar) continue;
                 const base = yOf(lb.yloc === 'abovebar' ? bar.high : bar.low);
-                py = base === null ? null : base + (lb.yloc === 'abovebar' ? -14 : 14);
+                py = base === null ? null : base + (lb.yloc === 'abovebar' ? -LABEL_BAR_GAP : LABEL_BAR_GAP);
             }
             if (py === null) continue;
 
@@ -535,20 +542,20 @@ export class DrawingSceneRenderer {
             if (this.isPointShape(lb.style)) {
                 if (!lb.noFill) this.drawLabelShape(ctx, lb.style, px, py, fontPx, color);
                 if (lb.text) this.drawLabelText(ctx, lb, px, py + fontPx, fontPx);
-                if (lb.tooltip) {
+                if (lb.tooltip || lb.meta) {
                     const r = Math.max(4, fontPx * 0.6) + 3;
-                    this.tipRegions.push({ left: px - r, top: py - r, right: px + r, bottom: py + r, text: lb.tooltip });
+                    this.tipRegions.push({ left: px - r, top: py - r, right: px + r, bottom: py + r, text: lb.tooltip ?? '', labelId: lb.id, meta: lb.meta });
                 }
             } else if (lb.style === 'none' || lb.style === 'text_outline') {
                 if (lb.text) {
                     this.drawLabelText(ctx, lb, px, py, fontPx, lb.style === 'text_outline');
-                    if (lb.tooltip) this.tipRegions.push(this.textRegion(ctx, lb, px, py, fontPx, lb.tooltip));
+                    if (lb.tooltip || lb.meta) this.tipRegions.push({ ...this.textRegion(ctx, lb, px, py, fontPx, lb.tooltip ?? ''), labelId: lb.id, meta: lb.meta });
                 }
             } else {
                 // noFill (na color) keeps the bubble style's geometry — drawBubble
                 // places the text as if the bubble were there and skips the fill.
                 const r = this.drawBubble(ctx, lb, px, py, fontPx, color);
-                if (lb.tooltip) this.tipRegions.push({ left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h, text: lb.tooltip });
+                if (lb.tooltip || lb.meta) this.tipRegions.push({ left: r.x, top: r.y, right: r.x + r.w, bottom: r.y + r.h, text: lb.tooltip ?? '', labelId: lb.id, meta: lb.meta });
             }
         }
     }

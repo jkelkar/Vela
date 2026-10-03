@@ -123,6 +123,10 @@ export interface DrawingLabel {
     size: BoxTextSize;
     textAlign: BoxHAlign;
     tooltip?: string;
+    /** Arbitrary serializable payload the host attaches to the label — carried verbatim
+     *  through the model and handed back by hit-test lookups (`labelAt`) so a click or
+     *  hover can resolve richer context than the tooltip string holds. */
+    meta?: Record<string, unknown>;
     fontFamily: BoxFontFamily;
     /** Pine `text_formatting` — bold/italic text, matching the box text options. */
     bold?: boolean;

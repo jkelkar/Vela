@@ -2424,6 +2424,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
                 title: model.title || r.title,
                 ...(model.shorttitle ? { shorttitle: model.shorttitle } : {}),
                 ownScale: model.ownScale === true,
+                ...(model.axis != null ? { axis: model.axis } : {}),
             });
         }
         const panes: PaneInfo[] = [];
@@ -2485,17 +2486,18 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         const oldPaneId = model.paneId ?? 'price';
         const resolved = this.resolveMoveTarget(id, model, target);
         if (!resolved) return;
-        const { paneId, ownScale, insert } = resolved;
-        if (paneId === oldPaneId && (model.ownScale === true) === ownScale) return; // no-op
+        const { paneId, ownScale, axis, insert } = resolved;
+        if (paneId === oldPaneId && (model.ownScale === true) === ownScale && model.axis === axis) return; // no-op
 
         if (insert) this.insertPaneOrder(paneId, insert);
         else if (!this.paneOrder.includes(paneId)) this.paneOrder.push(paneId);
 
         model.ownScale = ownScale;
+        model.axis = axis;
         record.paneLocked = true; // recomputes must honor this placement, not re-route by default
         this.placeModel(model, id, paneId);
         this.ensurePaneFor(paneId);
-        this.renderer.setIndicatorPane(record.renderHandle, paneId, { ownScale });
+        this.renderer.setIndicatorPane(record.renderHandle, paneId, { ownScale, axis });
 
         if (oldPaneId !== 'price' && oldPaneId !== paneId && !this.paneStillUsed(oldPaneId)) {
             this.renderer.removePane(oldPaneId);
@@ -2511,15 +2513,17 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         id: string,
         model: IndicatorModel,
         target: MoveTarget,
-    ): { paneId: string; ownScale: boolean; insert?: { before?: string; after?: string } } | null {
+    ): { paneId: string; ownScale: boolean; axis?: string; insert?: { before?: string; after?: string } } | null {
         if (target === 'price' || (typeof target === 'object' && 'pane' in target && target.pane === 'price')) {
             // Merge onto price: a price-unit overlay (declared overlay=true) keeps sharing the
-            // price scale; anything else gets its own scale column.
-            return { paneId: 'price', ownScale: !model.overlay };
+            // price scale; anything else gets its own scale column — an `axis` names that
+            // column (shared with same-name indicators on the pane).
+            const axis = typeof target === 'object' && 'axis' in target ? target.axis : undefined;
+            return { paneId: 'price', ownScale: !model.overlay || axis != null, axis };
         }
         if ('pane' in target) {
             if (!this.existingPaneIds().includes(target.pane)) return null;
-            return { paneId: target.pane, ownScale: true };
+            return { paneId: target.pane, ownScale: true, axis: target.axis };
         }
         // A brand-new pane: the indicator owns it (shares its scale with itself → no own-scale column).
         // The natural name `pane-${id}` collides with this indicator's OWN pane when it is the
@@ -2652,6 +2656,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
 
         let paneId = record.model?.paneId ?? 'price';
         const prevOwnScale = record.model?.ownScale === true;
+        const prevAxis = record.model?.axis;
         if (record.loading && !record.paneLocked) {
             // First COMPUTED model after the placeholder. The placeholder's pane came from
             // the prepare-time overlay guess — if the real model routes differently, move
@@ -2671,7 +2676,10 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             }
         }
         this.placeModel(model, id, paneId);
-        if (record.paneLocked) model.ownScale = prevOwnScale; // carry the merge across the recompute
+        if (record.paneLocked) {
+            model.ownScale = prevOwnScale; // carry the merge across the recompute
+            model.axis = prevAxis; // and the named-axis binding with it
+        }
         record.model = model;
         if (record.pendingStructural) {
             // Idempotent-by-id remount: refresh visuals while keeping the legend + open
