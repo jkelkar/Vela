@@ -540,7 +540,7 @@ export class DrawingSceneRenderer {
             const fontPx = fontSizePx(lb.size);
 
             if (this.isPointShape(lb.style)) {
-                if (!lb.noFill) this.drawLabelShape(ctx, lb.style, px, py, fontPx, color);
+                if (!lb.noFill) this.drawLabelShape(ctx, lb.style, px, py, fontPx, color, lb.hollow === true);
                 if (lb.text) this.drawLabelText(ctx, lb, px, py + fontPx, fontPx);
                 if (lb.tooltip || lb.meta) {
                     const r = Math.max(4, fontPx * 0.6) + 3;
@@ -610,7 +610,7 @@ export class DrawingSceneRenderer {
         for (let i = 0; i < lines.length; i += 1) ctx.fillText(lines[i]!, cx, startY + i * lineH);
     }
 
-    private drawLabelShape(ctx: CanvasRenderingContext2D, style: DrawingLabel['style'], cx: number, cy: number, fontPx: number, color: string): void {
+    private drawLabelShape(ctx: CanvasRenderingContext2D, style: DrawingLabel['style'], cx: number, cy: number, fontPx: number, color: string, hollow = false): void {
         const r = Math.max(4, fontPx * 0.6);
         ctx.fillStyle = color;
         ctx.strokeStyle = color;
@@ -619,10 +619,12 @@ export class DrawingSceneRenderer {
         switch (style) {
             case 'circle':
                 ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fill();
+                if (hollow) ctx.stroke();
+                else ctx.fill();
                 break;
             case 'square':
-                ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+                if (hollow) ctx.strokeRect(cx - r, cy - r, r * 2, r * 2);
+                else ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
                 break;
             case 'diamond':
                 ctx.moveTo(cx, cy - r);
@@ -630,7 +632,8 @@ export class DrawingSceneRenderer {
                 ctx.lineTo(cx, cy + r);
                 ctx.lineTo(cx - r, cy);
                 ctx.closePath();
-                ctx.fill();
+                if (hollow) ctx.stroke();
+                else ctx.fill();
                 break;
             case 'triangleup':
             case 'arrowup':
@@ -638,7 +641,8 @@ export class DrawingSceneRenderer {
                 ctx.lineTo(cx + r, cy + r);
                 ctx.lineTo(cx - r, cy + r);
                 ctx.closePath();
-                ctx.fill();
+                if (hollow) ctx.stroke();
+                else ctx.fill();
                 break;
             case 'triangledown':
             case 'arrowdown':
@@ -646,7 +650,8 @@ export class DrawingSceneRenderer {
                 ctx.lineTo(cx + r, cy - r);
                 ctx.lineTo(cx - r, cy - r);
                 ctx.closePath();
-                ctx.fill();
+                if (hollow) ctx.stroke();
+                else ctx.fill();
                 break;
             case 'flag':
                 ctx.moveTo(cx - r * 0.7, cy - r);
@@ -655,7 +660,7 @@ export class DrawingSceneRenderer {
                 ctx.lineTo(cx + r, cy - r * 0.4);
                 ctx.lineTo(cx - r * 0.7, cy + r * 0.2);
                 ctx.stroke();
-                ctx.fill();
+                if (!hollow) ctx.fill();
                 break;
             case 'cross':
                 ctx.moveTo(cx, cy - r);

@@ -133,6 +133,10 @@ export interface DrawingLabel {
     italic?: boolean;
     /** na bubble/marker color → render text only (no bubble/shape fill). */
     noFill?: boolean;
+    /** Outline-only point shapes (circle/square/diamond/triangle/flag): stroke the
+     *  border with `color`, leave the interior unpainted. No effect on cross/xcross
+     *  (stroke-only already) or bubble/text styles. */
+    hollow?: boolean;
     /** `force_overlay` → render on the price pane regardless of the indicator's pane. */
     overlay?: boolean;
 }
